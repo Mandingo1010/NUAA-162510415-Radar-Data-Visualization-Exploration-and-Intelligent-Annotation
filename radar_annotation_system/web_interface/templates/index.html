@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雷达数据智能标注系统 - Web版</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .upload-zone {
+            border: 2px dashed #007bff;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            background-color: #f8f9fa;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .upload-zone:hover {
+            border-color: #0056b3;
+            background-color: #e9ecef;
+        }
+        .upload-zone.dragover {
+            border-color: #28a745;
+            background-color: #d4edda;
+        }
+        .file-item {
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            padding: 10px;
+            margin: 5px 0;
+            background-color: white;
+            transition: all 0.2s ease;
+        }
+        .file-item:hover {
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .file-type-radar { border-left: 4px solid #dc3545; }
+        .file-type-image { border-left: 4px solid #28a745; }
+        .file-type-config { border-left: 4px solid #ffc107; }
+        .file-type-unknown { border-left: 4px solid #6c757d; }
+
+        .annotation-canvas {
+            border: 1px solid #dee2e6;
+            border-radius: 5px;
+            max-width: 100%;
+            cursor: crosshair;
+        }
+
+        .review-panel {
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .status-badge {
+            font-size: 0.8em;
+            padding: 4px 8px;
+            border-radius: 12px;
+        }
+
+        .progress-container {
+            display: none;
+            margin-top: 20px;
+        }
+
+        .annotation-item {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid #dee2e6;
+            min-height: 80px;
+        }
+
+        .btn-action {
+            min-width: 100px;
+        }
+
+        .stats-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .file-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .annotation-overlay {
+            position: absolute;
+            border: 2px solid #007bff;
+            background-color: rgba(0, 123, 255, 0.1);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .annotation-label {
+            position: absolute;
+            background-color: #007bff;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 11;
+        }
+
+        .loading-spinner {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            min-width: 300px;
+        }
+
+        /* 确保标注列表中的内容完整显示 */
+        #annotation-list .annotation-item {
+            overflow: visible;
+            height: auto;
+        }
+
+        #annotation-list .annotation-item .d-flex {
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        #annotation-list .annotation-item small {
+            line-height: 1.4;
+            display: block;
+            margin-bottom: 2px;
+        }
+
+        /* 改善标注列表的滚动体验 */
+        #annotation-list {
+            padding: 10px;
+        }
+
+        /* 针对小屏幕优化 */
+        @media (max-height: 768px) {
+            .card-body[style*="max-height"] {
+                max-height: 300px !important;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 通知容器 -->
+    <div id="notification-container" class="notification"></div>
+
+    <!-- 导航栏 -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="#">
+                <i class="fas fa-satellite-dish me-2"></i>
+                雷达数据智能标注系统
+            </a>
+            <span class="navbar-text">
+                Web版 v2.0
+            </span>
+        </div>
+    </nav>
+
+    <!-- 主要内容 -->
+    <div class="container-fluid mt-4">
+        <!-- 统计信息 -->
+        <div class="file-stats">
+            <div class="stats-card">
+                <h5><i class="fas fa-chart-bar me-2"></i>文件统计</h5>
+                <div class="row">
+                    <div class="col-6">
+                        <small>雷达文件</small>
+                        <h3 id="radar-count">0</h3>
+                    </div>
+                    <div class="col-6">
+                        <small>图像文件</small>
+                        <h3 id="image-count">0</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="stats-card">
+                <h5><i class="fas fa-tags me-2"></i>标注统计</h5>
+                <div class="row">
+                    <div class="col-6">
+                        <small>总标注数</small>
+                        <h3 id="annotation-count">0</h3>
+                    </div>
+                    <div class="col-6">
+                        <small>已审核</small>
+                        <h3 id="reviewed-count">0</h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- 左侧：文件上传和管理 -->
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header">
+                        <h5><i class="fas fa-upload me-2"></i>文件上传</h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- 拖拽上传区域 -->
+                        <div class="upload-zone" id="upload-zone">
+                            <i class="fas fa-cloud-upload-alt fa-3x text-primary mb-3"></i>
+                            <h5>拖拽文件夹到此处</h5>
+                            <p class="text-muted">或点击选择文件夹</p>
+                            <input type="file" id="folder-input" webkitdirectory directory multiple style="display: none;">
+                            <button class="btn btn-primary" onclick="document.getElementById('folder-input').click()">
+                                <i class="fas fa-folder-open me-2"></i>选择文件夹
+                            </button>
+                        </div>
+
+                        <!-- 文件列表 -->
+                        <div class="mt-4">
+                            <h6><i class="fas fa-list me-2"></i>文件列表</h6>
+                            <div id="file-list" style="max-height: 400px; overflow-y: auto;">
+                                <!-- 文件项目将动态添加到这里 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 处理控制 -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5><i class="fas fa-cogs me-2"></i>处理控制</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">处理模式</label>
+                            <select class="form-select" id="processing-mode">
+                                <option value="auto">自动处理</option>
+                                <option value="manual">手动处理</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-success w-100" id="start-processing">
+                            <i class="fas fa-play me-2"></i>开始处理
+                        </button>
+                        <button class="btn btn-info w-100 mt-2" id="visualize-3d" disabled>
+                            <i class="fas fa-cube me-2"></i>三维点云可视化
+                        </button>
+
+                        <!-- 进度条 -->
+                        <div class="progress-container">
+                            <div class="progress">
+                                <div class="progress-bar" id="processing-progress" role="progressbar" style="width: 0%"></div>
+                            </div>
+                            <small class="text-muted" id="processing-status">准备开始...</small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 中间：图像显示和标注 -->
+            <div class="col-md-5">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5><i class="fas fa-image me-2"></i>图像标注</h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" id="zoom-in">
+                                <i class="fas fa-search-plus"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary" id="zoom-out">
+                                <i class="fas fa-search-minus"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-primary" id="zoom-reset">
+                                <i class="fas fa-compress"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- 图像显示区域 -->
+                        <div class="position-relative" id="image-container">
+                            <canvas id="annotation-canvas" class="annotation-canvas"></canvas>
+                            <!-- 标注将动态添加到这里 -->
+                        </div>
+
+                        <!-- 图像信息 -->
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                <span id="image-info">请选择要标注的图像</span>
+                            </small>
+                        </div>
+
+                        <!-- 加载动画 -->
+                        <div class="loading-spinner" id="loading-spinner">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">加载中...</span>
+                            </div>
+                            <p class="mt-2">正在处理图像...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 标注列表 -->
+                <div class="card mt-3">
+                    <div class="card-header">
+                        <h5><i class="fas fa-shapes me-2"></i>当前标注</h5>
+                    </div>
+                    <div class="card-body" style="max-height: 400px; overflow-y: auto; min-height: 200px;">
+                        <div id="annotation-list">
+                            <!-- 标注项目将动态添加到这里 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：审核面板 -->
+            <div class="col-md-3">
+                <div class="review-panel">
+                    <h5><i class="fas fa-clipboard-check me-2"></i>人工审核</h5>
+
+                    <!-- 审核统计 -->
+                    <div class="mb-4">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span>当前文件进度</span>
+                            <span class="badge bg-primary" id="current-progress">0/0</span>
+                        </div>
+                        <div class="progress" style="height: 10px;">
+                            <div class="progress-bar" id="review-progress" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- 标注详情 -->
+                    <div id="selected-annotation" class="annotation-item" style="display: none;">
+                        <h6>标注详情</h6>
+                        <div id="annotation-details">
+                            <!-- 标注详情将动态添加到这里 -->
+                        </div>
+
+                        <!-- 审核按钮 -->
+                        <div class="mt-3">
+                            <div class="btn-group w-100" role="group">
+                                <button class="btn btn-success btn-action" id="approve-btn">
+                                    <i class="fas fa-check me-2"></i>通过
+                                </button>
+                                <button class="btn btn-danger btn-action" id="reject-btn">
+                                    <i class="fas fa-times me-2"></i>拒绝
+                                </button>
+                            </div>
+                            <button class="btn btn-warning btn-sm w-100 mt-2" id="edit-btn">
+                                <i class="fas fa-edit me-2"></i>编辑标注
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 批量操作 -->
+                    <div class="mt-4">
+                        <h6>批量操作</h6>
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-outline-success" id="approve-all">
+                                <i class="fas fa-check-double me-2"></i>全部通过
+                            </button>
+                            <button class="btn btn-outline-danger" id="reject-all">
+                                <i class="fas fa-times-circle me-2"></i>全部拒绝
+                            </button>
+                            <button class="btn btn-outline-primary" id="export-results">
+                                <i class="fas fa-download me-2"></i>导出结果
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 快捷键提示 -->
+                    <div class="mt-4">
+                        <h6>快捷键</h6>
+                        <small class="text-muted">
+                            <div><kbd>A</kbd> - 通过当前标注</div>
+                            <div><kbd>D</kbd> - 拒绝当前标注</div>
+                            <div><kbd>←</kbd> - 上一个标注</div>
+                            <div><kbd>→</kbd> - 下一个标注</div>
+                        </small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 编辑标注模态框 -->
+    <div class="modal fade" id="editAnnotationModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">编辑标注</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="edit-annotation-form">
+                        <div class="mb-3">
+                            <label class="form-label">类别</label>
+                            <select class="form-select" id="edit-class">
+                                <option value="car">汽车</option>
+                                <option value="person">行人</option>
+                                <option value="bicycle">自行车</option>
+                                <option value="truck">卡车</option>
+                                <option value="building">建筑物</option>
+                                <option value="other">其他</option>
+                            </select>
+                        </div>
+                        <div class="row">
+                            <div class="col-6">
+                                <label class="form-label">X坐标</label>
+                                <input type="number" class="form-control" id="edit-x">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">Y坐标</label>
+                                <input type="number" class="form-control" id="edit-y">
+                            </div>
+                        </div>
+                        <div class="row mt-3">
+                            <div class="col-6">
+                                <label class="form-label">宽度</label>
+                                <input type="number" class="form-control" id="edit-width">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label">高度</label>
+                                <input type="number" class="form-control" id="edit-height">
+                            </div>
+                        </div>
+                        <div class="mb-3 mt-3">
+                            <label class="form-label">置信度</label>
+                            <input type="range" class="form-range" id="edit-confidence" min="0" max="1" step="0.1">
+                            <small class="text-muted" id="confidence-value">0.8</small>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="save-edit">保存更改</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3D可视化模态框 -->
+    <div class="modal fade" id="visualizationModal" tabindex="-1" aria-labelledby="visualizationModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="visualizationModalLabel">三维点云可视化</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body" id="visualization-container" style="height: 600px; overflow-y: auto;">
+              <!-- Plotly HTML will be injected here -->
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- JavaScript库 -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.0/fabric.min.js"></script>
+
+    <!-- 主要JavaScript文件 -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
